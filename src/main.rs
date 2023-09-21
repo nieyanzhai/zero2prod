@@ -11,10 +11,10 @@ async fn main() -> std::io::Result<()> {
     let configurations =
         configuration::get_configurations().expect("Failed to read configuration.");
     let connection_pool =
-        PgPool::connect(&configurations.database.connection_string().expose_secret())
+        PgPool::connect(configurations.database.connection_string().expose_secret())
             .await
             .expect("Failed to connect to Postgres");
 
-    let listener = TcpListener::bind(&format!("127.0.0.1:{}", configurations.application_port))?;
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", configurations.application_port))?;
     zero2prod::startup::run(listener, connection_pool)?.await
 }
