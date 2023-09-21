@@ -4,7 +4,7 @@ use zero2prod::{configuration, telemetry};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let subscriber = telemetry::get_subscriber("zero2prod".into(), "info".into());
+    let subscriber = telemetry::get_subscriber("zero2prod".into(), "info".into(), std::io::stdout);
     telemetry::init_subscriber(subscriber);
 
     let configurations =
