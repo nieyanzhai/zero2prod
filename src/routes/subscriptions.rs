@@ -2,7 +2,6 @@ use actix_web::{web, HttpResponse};
 use chrono::Utc;
 use serde::Deserialize;
 use sqlx::PgPool;
-use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -14,23 +13,28 @@ pub struct FormData {
 /// extract form data using serde
 /// this handler gets called only if the content type is *x-www-form-urlencoded*
 /// and the content of the request could be deserialized to a `FormData` struct
+#[tracing::instrument(
+    name = "Adding a new subscriber",
+    skip(form, connection_pool), 
+    level = "info",
+    fields(
+        request_id = %Uuid::new_v4(),
+        subscriber_email = %form.email, 
+        subscriber_name = %form.name))]
 pub async fn subscribe(
     form: web::Form<FormData>,
     connection_pool: web::Data<PgPool>,
 ) -> HttpResponse {
-    let uuid = Uuid::new_v4();
-    let request_span = tracing::info_span!(
-        "Adding a new subscriber",
-        %uuid,
-        subscriber_email=%form.email,
-        subscriber_name=%form.name);
-    let _request_span_guard = request_span.enter();
+    match insert_subscriber(&form, &connection_pool).await
+    {
+        Ok(_) => HttpResponse::Ok().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish()
+    }
+}
 
-    // We do not call `.enter` on query_span!
-    // `.instrument` takes care of it at the right moments
-    // in the query future lifetime
-    let query_span = tracing::info_span!("Saving new subscriber to database");
-    match sqlx::query!(
+#[tracing::instrument(name = "Saving new subscriber to database", skip(form, pool), level = "info")]
+async fn insert_subscriber(form: &FormData, pool:&PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query!(
         r#"
         INSERT INTO subscriptions (id, name, email, subscribed_at)
         VALUES ($1, $2, $3, $4)
@@ -40,17 +44,11 @@ pub async fn subscribe(
         form.email,
         Utc::now()
     )
-    .execute(connection_pool.as_ref())
-    .instrument(query_span)
+    .execute(pool)
     .await
-    {
-        Ok(_) => {
-            tracing::info!("Subscriber added to database.");
-            return HttpResponse::Ok().finish();
-        }
-        Err(e) => {
-            tracing::error!("Failed to execute query: {:?}", e);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
+    .map_err(|e| {
+        tracing::error!("Failed to execute query: {:?}", e);
+        e
+    })?;
+    Ok(())
 }
