@@ -3,7 +3,13 @@ use secrecy::{ExposeSecret, Secret};
 #[derive(serde::Deserialize)]
 pub struct Settings {
     pub database: DatabaseSettings,
-    pub application_port: u16,
+    pub application: ApplicationSettings,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ApplicationSettings {
+    pub port: u16,
+    pub host: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -39,8 +45,50 @@ impl DatabaseSettings {
 }
 
 pub fn get_configurations() -> Result<Settings, config::ConfigError> {
+    let base_path = std::env::current_dir().expect("Failed to determine the current directory");
+    let configuration_directory = base_path.join("configuration");
+
+    // Detect the running environment
+    // Default to "local" if unspecified
+    let environment: Environment = std::env::var("APP_ENVIRONMENT")
+        .unwrap_or_else(|_| "local".into())
+        .try_into()
+        .expect("Failed to parse APP_ENVIRONMENT");
+
     let settings = config::Config::builder()
-        .add_source(config::File::with_name("configuration"))
-        .build()?;
-    settings.try_deserialize()
+        .add_source(config::File::from(configuration_directory.join("base")).required(true))
+        .add_source(config::File::from(configuration_directory.join(environment.as_str())).required(true));
+
+    // Build our settings
+    settings.build()?.try_deserialize()
+}
+
+
+enum Environment {
+    Local,
+    Production,
+}
+
+impl Environment{
+    fn as_str(&self) -> &'static str {
+        match self {
+            Environment::Local => "local",
+            Environment::Production => "production",
+        }
+    }
+}
+
+impl TryFrom<String> for Environment {
+    type Error = String;
+    // Required method
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            "production" => Ok(Self::Production),
+            _ => Err(format!(
+                "{} is not a supported environment. Use either `local` or `production`.",
+                value
+            )),
+        }
+    }
 }
